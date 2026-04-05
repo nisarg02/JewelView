@@ -6,8 +6,8 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import { createDiamondMaterial } from '../lib/DiamondMaterial'
 
-const RING_HDR = '/configs/CUTOM FOR RING.hdr'
-const DIAMOND_HDR = '/configs/CUTOM FOR DIAMOND.hdr'
+const RING_HDR = '/configs/CUSTOM FOR RING.hdr'
+const DIAMOND_HDR = '/configs/CUSTOM FOR DIAMOND.hdr'
 const METAL_PMAT = '/configs/Metal-material.pmat'
 const DIAMOND_DMAT = '/configs/diamond-material.dmat'
 

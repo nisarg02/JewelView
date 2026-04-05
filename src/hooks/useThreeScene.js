@@ -7,6 +7,8 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
 import { loadHDREnvMap } from '../lib/env-loader'
 import { applyVjsonMaterials, extractMaterialsFromModel } from '../lib/material-mapper'
 import {
@@ -38,7 +40,7 @@ export default function useThreeScene(containerRef, vjson) {
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 1.0
     renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFShadowMap
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
     // Position canvas at top-left of container
     const canvas = renderer.domElement
@@ -61,11 +63,21 @@ export default function useThreeScene(containerRef, vjson) {
     dl.position.set(5, 10, 5)
     dl.castShadow = true
     dl.shadow.mapSize.set(2048, 2048)
+    dl.shadow.bias = -0.0001
+    dl.shadow.radius = 4
     scene.add(dl)
+
+    const dlFill = new THREE.DirectionalLight(0xffffff, 0.6)
+    dlFill.position.set(-5, 4, -5)
+    scene.add(dlFill)
 
     // Composer
     const composer = new EffectComposer(renderer)
     composer.addPass(new RenderPass(scene, camera))
+
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.25, 0.4, 0.85)
+    composer.addPass(bloomPass)
+
     composer.addPass(new OutputPass())
 
     // Draco
@@ -74,7 +86,7 @@ export default function useThreeScene(containerRef, vjson) {
     const gltfLoader = new GLTFLoader()
     gltfLoader.setDRACOLoader(dracoLoader)
 
-    internals.current = { scene, camera, renderer, controls, composer, pmremGenerator, gltfLoader, model: null }
+    internals.current = { scene, camera, renderer, controls, composer, bloomPass, pmremGenerator, gltfLoader, model: null, floorGroup: null }
     setSceneInited(true)
 
     // Render loop
@@ -143,9 +155,11 @@ export default function useThreeScene(containerRef, vjson) {
       renderer.toneMapping = tmMap[tm.toneMapping] ?? THREE.ACESFilmicToneMapping
       renderer.toneMappingExposure = tm.exposure
 
+      composer.passes = []
+      composer.addPass(new RenderPass(scene, camera))
+      if (internals.current.bloomPass) composer.addPass(internals.current.bloomPass)
+
       if (tm.saturation !== 1 || tm.contrast !== 1) {
-        composer.passes = []
-        composer.addPass(new RenderPass(scene, camera))
         composer.addPass(new ShaderPass({
           uniforms: {
             tDiffuse: { value: null },
@@ -163,8 +177,8 @@ export default function useThreeScene(containerRef, vjson) {
               gl_FragColor = c;
             }`,
         }))
-        composer.addPass(new OutputPass())
       }
+      composer.addPass(new OutputPass())
     }
 
   }, [vjson, sceneInited])
@@ -174,7 +188,7 @@ export default function useThreeScene(containerRef, vjson) {
     if (!sceneInited || !internals.current.scene) return
     const { scene, pmremGenerator } = internals.current
 
-    loadHDREnvMap('/CUTOM FOR RING.hdr', pmremGenerator)
+    loadHDREnvMap('/configs/CUSTOM FOR RING.hdr', pmremGenerator)
       .then((envMap) => {
         scene.environment = envMap
         internals.current.ringEnvMap = envMap
@@ -182,7 +196,7 @@ export default function useThreeScene(containerRef, vjson) {
       })
       .catch((err) => console.warn('Ring HDR load failed:', err))
 
-    loadHDREnvMap('/CUTOM FOR DIAMOND.hdr', pmremGenerator)
+    loadHDREnvMap('/configs/CUSTOM FOR DIAMOND.hdr', pmremGenerator)
       .then((envMap) => {
         internals.current.diamondEnvMap = envMap
         console.log('Diamond HDR env map loaded')
@@ -238,6 +252,43 @@ export default function useThreeScene(containerRef, vjson) {
 
       scene.add(object)
       internals.current.model = object
+
+      const bottomY = center.y - (size.y * scale) / 2;
+
+      if (!internals.current.floorGroup) {
+        const floorGroup = new THREE.Group()
+
+        // Soft Shadow plane
+        const shadowPlane = new THREE.Mesh(
+          new THREE.PlaneGeometry(20, 20),
+          new THREE.ShadowMaterial({ opacity: 0.15, depthWrite: false })
+        )
+        shadowPlane.rotation.x = -Math.PI / 2
+        shadowPlane.position.y = 0.001
+        shadowPlane.receiveShadow = true
+        floorGroup.add(shadowPlane)
+
+        // Subtle Reflector
+        const reflector = new Reflector(new THREE.PlaneGeometry(20, 20), {
+          clipBias: 0.003,
+          textureWidth: window.innerWidth || 1024,
+          textureHeight: window.innerHeight || 1024,
+          color: 0x444444
+        })
+        reflector.rotation.x = -Math.PI / 2
+        
+        // Ensure the reflector is transparent and faint
+        reflector.material.transparent = true
+        reflector.material.opacity = 0.5
+        reflector.material.depthWrite = false
+        
+        floorGroup.add(reflector)
+
+        internals.current.floorGroup = floorGroup
+        scene.add(floorGroup)
+      }
+      
+      internals.current.floorGroup.position.y = bottomY - 0.005;
 
       // Apply vjson materials
       if (vjson) {
