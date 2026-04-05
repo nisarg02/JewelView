@@ -240,37 +240,25 @@ export default function useThreeScene(containerRef, vjson) {
           const isGem = meshName.startsWith('gem') || matName.includes('gem') ||
             matName.includes('diamond') || matName.includes('stone') || matName.includes('crystal') ||
             mat.transmission > 0;
-
+            
           const isMetal = meshName.startsWith('metal') || matName.includes('metal') || mat.metalness > 0.3;
 
-          // Force intense polish on metals to match Target Output
-          if (isMetal && !mat._isPolished) {
-            mat.roughness = 0.05
-            mat.metalness = 1.0
-            mat.envMapIntensity = 2.0
-            mat._isPolished = true
-            mat.needsUpdate = true
-          }
-
           if (isGem && diamondEnv) {
-            const diamondMat = new THREE.MeshPhysicalMaterial({
-              color: 0xffffff,
-              transmission: 1.0,  // Enables native screen-space scene refraction
-              ior: 2.60,          // True Diamond Index of Refraction
-              dispersion: 1.0,    // Chromatic dispersion for RGB rainbows
+            const diamondMat = createDiamondMaterial(diamondEnv, {
+              color: mat.color || new THREE.Color(0xffffff),
+              ior: 2.6,
+              dispersion: 0.015,
+              reflectivity: mat.reflectivity || 1.0,
               thickness: mat.thickness || 5.0,
-              roughness: 0.0,
-              metalness: 0.0,
-              envMap: diamondEnv,
-              envMapIntensity: 1.5,
-              transparent: true,
-              side: THREE.DoubleSide
+              envMapIntensity: mat.envMapIntensity || 2.5,
+              boostFactor: 1.5,
+              opacity: 0.85,
             })
             diamondMat.name = mat.name
             mat.dispose()
             return diamondMat
           }
-
+          
           return mat
         })
         child.material = newMats.length === 1 ? newMats[0] : newMats

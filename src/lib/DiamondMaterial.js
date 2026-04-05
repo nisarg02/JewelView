@@ -28,11 +28,14 @@ const diamondFragmentShader = `
   uniform float envMapIntensity;
   uniform float ior;
   uniform float dispersion;
-  uniform float reflectivity;
   uniform float thickness;
   uniform float boostFactor;
   uniform vec3 color;
   uniform float opacity;
+  uniform float absorption;
+  uniform float squashFactor;
+  uniform float geometryFactor;
+  uniform float transmission;
 
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
@@ -60,37 +63,47 @@ const diamondFragmentShader = `
     vec3 n = normal;
     vec3 accumulated = vec3(0.0);
     float weight = 1.0;
-    bool inside = false;
 
+    // First surface interaction: Ray enters the diamond.
+    vec3 refracted = refract(dir, n, eta);
+    if (length(refracted) < 0.001) return vec3(0.0);
+    
+    dir = refracted;
+    
+    // Begin internal bouncing
     for (int i = 0; i < MAX_BOUNCES; i++) {
-      float currentEta = inside ? (1.0 / eta) : eta;
-      vec3 refracted = refract(dir, n, currentEta);
+        // The .dmat explicitly supplies geometry tracking variables to mimic facets
+        vec3 squashedNormal = normalize(vec3(n.x, n.y * squashFactor, n.z));
+        vec3 facetNormal = normalize(-squashedNormal + dir * geometryFactor);
 
-      if (length(refracted) < 0.001) {
-        // Total internal reflection
-        dir = reflect(dir, n);
-      } else {
-        float cosI = abs(dot(dir, n));
-        float f0 = pow((eta - 1.0) / (eta + 1.0), 2.0);
-        float f = fresnel(cosI, f0);
+        vec3 exitingRay = refract(dir, facetNormal, 1.0 / eta);
 
-        // Refracted ray exits — sample environment, offset by thickness
-        vec3 exitDir = normalize(refracted * thickness);
-        vec3 envColor = sampleEnv(exitDir) * envMapIntensity;
-        accumulated += envColor * weight * (1.0 - f);
+        if (length(exitingRay) < 0.001) {
+            // Total Internal Reflection - Ray bounces completely back inside
+            dir = reflect(dir, facetNormal);
+            n = -facetNormal; 
+        } else {
+            // Partial Transmission (Exits) + Partial Reflection (Bounces)
+            float cosI = abs(dot(dir, facetNormal));
+            float f0 = pow((1.0 / eta - 1.0) / (1.0 / eta + 1.0), 2.0);
+            float f = fresnel(cosI, f0);
 
-        // Reflected ray continues inside
-        dir = reflect(dir, n);
-        weight *= f;
-        inside = !inside;
-        n = -n;
-      }
+            // Accumulate exactly what exits
+            vec3 envColor = sampleEnv(exitingRay) * envMapIntensity;
+            
+            // Apply geometric absorption per exit
+            envColor *= (1.0 - absorption);
 
-      if (weight < 0.005) break;
+            accumulated += envColor * weight * (1.0 - f);
+
+            // Reflected ray stays inside, loses energy
+            dir = reflect(dir, facetNormal);
+            weight *= f;
+            n = -facetNormal; // Update reference for next facet
+        }
+
+        if (weight < 0.01) break;
     }
-
-    // Remaining energy exits
-    accumulated += sampleEnv(dir) * envMapIntensity * weight;
 
     return accumulated;
   }
@@ -108,11 +121,11 @@ const diamondFragmentShader = `
     float etaG = eta;
     float etaB = 1.0 / (ior + dOffset);
 
-    vec3 trR = traceRay(incident, normal, 1.0 / etaR);
-    vec3 trG = traceRay(incident, normal, 1.0 / etaG);
-    vec3 trB = traceRay(incident, normal, 1.0 / etaB);
+    vec3 trR = traceRay(incident, normal, etaR);
+    vec3 trG = traceRay(incident, normal, etaG);
+    vec3 trB = traceRay(incident, normal, etaB);
 
-    vec3 refracted = vec3(trR.r, trG.g, trB.b);
+    vec3 refracted = vec3(trR.r * 2.0, trG.g * 2.0, trB.b * 2.0) * transmission;
 
     // Surface reflection
     float cosTheta = max(dot(viewDir, normal), 0.0);
@@ -123,25 +136,32 @@ const diamondFragmentShader = `
     vec3 envRefl = sampleEnv(reflDir) * envMapIntensity;
 
     // Combine refraction + reflection
-    vec3 result = mix(refracted, envRefl, surfaceF * reflectivity);
+    vec3 result = mix(refracted, envRefl, surfaceF);
 
     // Apply tint and boost
     result *= color * boostFactor;
 
     gl_FragColor = vec4(result, opacity);
+
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
   }
 `
 
 export function createDiamondMaterial(envMap, options = {}) {
   const {
     color = new THREE.Color(0xffffff),
-    ior = 2.42,
-    dispersion = 5.0,
-    reflectivity = 1.0,
+    ior = 2.60,
+    dispersion = 0.0080,
     thickness = 2.0,
-    envMapIntensity = 2.0,
-    boostFactor = 1.5,
+    envMapIntensity = 0.6,
+    boostFactor = 2.0,
     opacity = 1.0,
+    absorption = 0.25,
+    squashFactor = 0.98,
+    geometryFactor = 0.5,
+    transmission = 1.00
+
   } = options
 
   return new THREE.ShaderMaterial({
@@ -150,11 +170,14 @@ export function createDiamondMaterial(envMap, options = {}) {
       envMapIntensity: { value: envMapIntensity },
       ior: { value: ior },
       dispersion: { value: dispersion },
-      reflectivity: { value: reflectivity },
       thickness: { value: thickness },
       boostFactor: { value: boostFactor },
       color: { value: color },
       opacity: { value: opacity },
+      absorption: { value: absorption },
+      squashFactor: { value: squashFactor },
+      geometryFactor: { value: geometryFactor },
+      transmission: { value: transmission },
     },
     vertexShader: diamondVertexShader,
     fragmentShader: diamondFragmentShader,
