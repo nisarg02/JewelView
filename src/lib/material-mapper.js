@@ -43,16 +43,16 @@ function applyProps(mat, vj) {
 
   // Diamond materials
   if (vj.type === 'DiamondMaterial') {
-    mat.transmission = 0.95
-    mat.thickness = 1.5
+    mat.transmission = 1
+    mat.thickness = 2
     mat.roughness = 0
     mat.metalness = 0
     mat.ior = vj.refractiveIndex ?? 2.42
-    mat.specularIntensity = vj.reflectivity ?? 0.5
+    mat.specularIntensity = vj.reflectivity ?? 2
     mat.envMapIntensity = vj.envMapIntensity ?? 1.3
     mat.clearcoat = 1
     mat.clearcoatRoughness = 0
-    if (vj.dispersion != null) mat.dispersion = vj.dispersion
+    if (vj.dispersion != null) mat.dispersion = vj.dispersion ?? 0.008
     if (vj.color != null && vj.color !== 16777215) {
       mat.attenuationColor = new THREE.Color(vj.color)
       mat.attenuationDistance = 0.5

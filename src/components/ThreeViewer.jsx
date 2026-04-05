@@ -6,9 +6,10 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import { createDiamondMaterial } from '../lib/DiamondMaterial'
 
-const RING_HDR = '/CUTOM FOR RING.hdr'
-const DIAMOND_HDR = '/CUTOM FOR DIAMOND.hdr'
-const DEFAULT_GLB = '/Ring Master 02-03-2026.glb'
+const RING_HDR = '/configs/CUTOM FOR RING.hdr'
+const DIAMOND_HDR = '/configs/CUTOM FOR DIAMOND.hdr'
+const METAL_PMAT = '/configs/Metal-material.pmat'
+const DIAMOND_DMAT = '/configs/diamond-material.dmat'
 
 export default function ThreeViewer() {
   const containerRef = useRef(null)
@@ -97,7 +98,7 @@ export default function ThreeViewer() {
     scene.add(rim)
 
     // ── Store refs ──
-    sceneRef.current = { scene, camera, renderer, controls, pmrem, model: null, diamondEnv: null }
+    sceneRef.current = { scene, camera, renderer, controls, pmrem, model: null, diamondEnv: null, pmatConfig: null, dmatConfig: null }
 
     // ── Loaders ──
     const hdrLoader = new HDRLoader()
@@ -106,7 +107,7 @@ export default function ThreeViewer() {
     const gltfLoader = new GLTFLoader()
     gltfLoader.setDRACOLoader(dracoLoader)
 
-    // ── Load HDRs first, then model ──
+    // ── Load HDRs + material configs, then ready ──
     const ringHdrP = new Promise((resolve) => {
       hdrLoader.load(RING_HDR, (tex) => {
         tex.mapping = THREE.EquirectangularReflectionMapping
@@ -125,9 +126,16 @@ export default function ThreeViewer() {
       })
     })
 
-    // Wait for both HDRs to be ready
-    Promise.all([ringHdrP, diamondHdrP]).then(() => {
-      console.log('HDRs loaded, ready for model')
+    const pmatP = fetch(METAL_PMAT).then(r => r.json()).then(data => {
+      sceneRef.current.pmatConfig = data
+    }).catch(() => console.warn('PMAT config not found'))
+
+    const dmatP = fetch(DIAMOND_DMAT).then(r => r.json()).then(data => {
+      sceneRef.current.dmatConfig = data
+    }).catch(() => console.warn('DMAT config not found'))
+
+    Promise.all([ringHdrP, diamondHdrP, pmatP, dmatP]).then(() => {
+      console.log('HDRs + material configs loaded')
       setLoading(false)
     })
 
@@ -198,53 +206,66 @@ export default function ThreeViewer() {
           model.scale.setScalar(scale)
           model.position.sub(center.multiplyScalar(scale))
 
-          // Log material names for debugging
-          model.traverse((child) => {
-            if (child.isMesh) {
-              const mats = Array.isArray(child.material) ? child.material : [child.material]
-              mats.forEach((m) => console.log('Material:', m.name, '| metalness:', m.metalness, '| roughness:', m.roughness, '| type:', m.type))
-            }
-          })
+          // Apply materials based on mesh/geometry name
+          const pmat = sceneRef.current.pmatConfig
+          const dmat = sceneRef.current.dmatConfig
+          const dEnv = sceneRef.current.diamondEnv
 
-          // Enable shadows & upgrade materials
           model.traverse((child) => {
             if (!child.isMesh) return
             child.castShadow = true
             child.receiveShadow = true
 
+            const meshName = (child.name || '').toLowerCase()
+            const matName = (child.material?.name || '').toLowerCase()
+            const isGem = meshName.startsWith('gem') || matName.includes('gem') ||
+              matName.includes('diamond') || matName.includes('stone') || matName.includes('crystal')
+            const isMetal = meshName.startsWith('metal') || matName.includes('metal')
+
             const mats = Array.isArray(child.material) ? child.material : [child.material]
             const newMats = mats.map((mat) => {
-              const name = (mat.name || '').toLowerCase()
-              const isDiamond = name.includes('diamond') || name.includes('gem') ||
-                name.includes('stone') || name.includes('crystal')
-
-              if (isDiamond) {
-                // Diamond HDR is guaranteed loaded before model
-                const dEnv = sceneRef.current.diamondEnv
-                // Custom 24-bounce ray-traced diamond shader
+              if (isGem) {
+                // Diamond config from scene.glb: dispersion 5.0, transmission 1.0, IOR 2.333
+                const boost = dmat?.boostFactors || { x: 1, y: 1, z: 1 }
+                const avgBoost = dmat ? (boost.x + boost.y + boost.z) / 3 : 1.5
                 const diamondMat = createDiamondMaterial(dEnv, {
-                  color: new THREE.Color(0xffffff),
-                  ior: 2.42,
+                  color: new THREE.Color(dmat?.color ?? 0xffffff),
+                  ior: 2.333,
                   dispersion: 5.0,
-                  reflectivity: 1.0,
-                  thickness: 2.0,
-                  envMapIntensity: 2.0,
-                  boostFactor: 1.5,
+                  reflectivity: dmat?.reflectivity ?? 0.2,
+                  thickness: 1.0,
+                  envMapIntensity: dmat?.envMapIntensity ?? 0.6,
+                  boostFactor: avgBoost,
                   opacity: 1.0,
                 })
                 mat.dispose()
                 return diamondMat
-              } else if (mat.metalness > 0.3) {
-                // Metal
-                mat.reflectivity = 1.0
-                mat.emissiveIntensity = 1.0
-                mat.opacity = 1.0
-                mat.envMapIntensity = 1.18
-                mat.clearcoat = 1.0
-                mat.clearcoatRoughness = 0.0
+              } else if ((isMetal || mat.metalness > 0.3) && pmat) {
+                // Apply PMAT config to metal
+                mat.color = new THREE.Color(pmat.color ?? mat.color)
+                mat.metalness = pmat.metalness ?? 1
+                mat.roughness = pmat.roughness ?? 0
+                mat.envMapIntensity = pmat.envMapIntensity ?? 0.8
+                mat.reflectivity = pmat.reflectivity ?? 1.4
+                mat.clearcoat = pmat.clearcoat ?? 1
+                mat.clearcoatRoughness = pmat.clearcoatRoughness ?? 0.23
+                mat.specularIntensity = pmat.specularIntensity ?? 1
+                mat.specularColor = new THREE.Color(pmat.specularColor ?? 0xffffff)
+                mat.sheen = pmat.sheen ?? 0
+                mat.sheenColor = new THREE.Color(pmat.sheenColor ?? 0)
+                mat.sheenRoughness = pmat.sheenRoughness ?? 1
+                mat.iridescence = pmat.iridescence ?? 0
+                mat.iridescenceIOR = pmat.iridescenceIOR ?? 1.3
+                mat.anisotropy = pmat.anisotropy ?? 0
+                mat.anisotropyRotation = pmat.anisotropyRotation ?? 0
+                mat.emissive = new THREE.Color(pmat.emissive ?? 0)
+                mat.emissiveIntensity = pmat.emissiveIntensity ?? 0
+                mat.transmission = pmat.transmission ?? 0
+                mat.side = pmat.side === 2 ? THREE.DoubleSide : pmat.side === 1 ? THREE.BackSide : THREE.FrontSide
                 mat.needsUpdate = true
                 return mat
               } else {
+                // Fallback metal without pmat
                 mat.envMapIntensity = 1.2
                 mat.needsUpdate = true
                 return mat

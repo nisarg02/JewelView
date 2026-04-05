@@ -1,0 +1,48 @@
+{
+  "metadata": {
+    "version": 4.6001,
+    "type": "DiamondMaterial",
+    "generator": "DiamondMaterial.toJSON"
+  },
+  "name": "Diamond BIG",
+  "uuid": "6afc4419-a32e-4193-b961-b4bc639a52de",
+  "color": 14342874,
+  "envMapIntensity": 0.6000000000000001,
+  "envMapIndex": 0,
+  "envMapRotationOffset": 1.0408340855860843e-17,
+  "envMapRotationOffsetX": 0,
+  "envMapRotationOffsetY": 0,
+  "envMapRotationOffsetZ": 0,
+  "dispersion": 0.008,
+  "squashFactor": 0.98,
+  "geometryFactor": 0.5,
+  "gammaFactor": 0.7500000000000001,
+  "absorptionFactor": 0.25,
+  "reflectivity": 0.2,
+  "refractiveIndex": 2.5999999999999996,
+  "rayBounces": 8,
+  "diamondOrientedEnvMap": 0,
+  "boostFactors": {
+    "x": 2,
+    "y": 2,
+    "z": 2,
+    "isVector3": true
+  },
+  "transmission": 0,
+  "isDiamondMaterialParameters": true,
+  "userData": {
+    "separateEnvMapIntensity": true,
+    "cloneId": "0_1_1_2_1_2_2_1_2_1_1_2_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_2_1_1_1_1",
+    "cloneCount": 0,
+    "_baseMaterial": "3d7012b4-bae2-4776-88b2-6fe6255f9c02",
+    "rootPath": "https://packs.ijewel3d.com/files/2_gem_diamond_d_colorless_039be63563.dmat?localhost",
+    "Bloom": {
+      "enable": false
+    },
+    "label": "Diamond BIG ",
+    "uuid": "6afc4419-a32e-4193-b961-b4bc639a52de"
+  },
+  "type": "DiamondMaterial",
+  "textures": [],
+  "images": []
+}
