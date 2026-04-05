@@ -7,7 +7,7 @@ import * as THREE from 'three'
  * Works with equirectangular HDR environment maps.
  */
 
-const RAY_BOUNCES = 24
+const RAY_BOUNCES = 5
 
 const diamondVertexShader = `
   varying vec3 vWorldNormal;
@@ -28,14 +28,11 @@ const diamondFragmentShader = `
   uniform float envMapIntensity;
   uniform float ior;
   uniform float dispersion;
+  uniform float reflectivity;
   uniform float thickness;
   uniform float boostFactor;
   uniform vec3 color;
   uniform float opacity;
-  uniform float absorption;
-  uniform float squashFactor;
-  uniform float geometryFactor;
-  uniform float transmission;
 
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
@@ -49,9 +46,7 @@ const diamondFragmentShader = `
     vec3 d = normalize(dir);
     float u = atan(d.z, d.x) / (2.0 * PI) + 0.5;
     float v = asin(clamp(d.y, -1.0, 1.0)) / PI + 0.5;
-    vec3 col = texture2D(envMap, vec2(u, v)).rgb;
-    // High-contrast curve to generate sharp black facets
-    return pow(col, vec3(1.8));
+    return texture2D(envMap, vec2(u, v)).rgb;
   }
 
   // Fresnel (Schlick)
@@ -117,7 +112,7 @@ const diamondFragmentShader = `
     vec3 trG = traceRay(incident, normal, etaG);
     vec3 trB = traceRay(incident, normal, etaB);
 
-    vec3 refracted = vec3(trR.r, trG.g, trB.b) * transmission;
+    vec3 refracted = vec3(trR.r, trG.g, trB.b);
 
     // Surface reflection
     float cosTheta = max(dot(viewDir, normal), 0.0);
@@ -128,7 +123,7 @@ const diamondFragmentShader = `
     vec3 envRefl = sampleEnv(reflDir) * envMapIntensity;
 
     // Combine refraction + reflection
-    vec3 result = mix(refracted, envRefl, surfaceF);
+    vec3 result = mix(refracted, envRefl, surfaceF * reflectivity);
 
     // Apply tint and boost
     result *= color * boostFactor;
@@ -143,17 +138,13 @@ const diamondFragmentShader = `
 export function createDiamondMaterial(envMap, options = {}) {
   const {
     color = new THREE.Color(0xffffff),
-    ior = 2.60,
-    dispersion = 0.0080,
-    thickness = 2.0,
-    envMapIntensity = 0.6,
-    boostFactor = 2.0,
-    opacity = 1.0,
-    absorption = 0.25,
-    squashFactor = 0.98,
-    geometryFactor = 0.5,
-    transmission = 1.00
-
+    ior = 2.42,
+    dispersion = 5.0,
+    reflectivity = 1.0,
+    thickness = 5.0,
+    envMapIntensity = 2.0,
+    boostFactor = 1.5,
+    opacity = 0.85,
   } = options
 
   return new THREE.ShaderMaterial({
@@ -162,14 +153,11 @@ export function createDiamondMaterial(envMap, options = {}) {
       envMapIntensity: { value: envMapIntensity },
       ior: { value: ior },
       dispersion: { value: dispersion },
+      reflectivity: { value: reflectivity },
       thickness: { value: thickness },
       boostFactor: { value: boostFactor },
       color: { value: color },
       opacity: { value: opacity },
-      absorption: { value: absorption },
-      squashFactor: { value: squashFactor },
-      geometryFactor: { value: geometryFactor },
-      transmission: { value: transmission },
     },
     vertexShader: diamondVertexShader,
     fragmentShader: diamondFragmentShader,
