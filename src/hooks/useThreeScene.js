@@ -58,18 +58,14 @@ export default function useThreeScene(containerRef, vjson) {
     pmremGenerator.compileEquirectangularShader()
 
     // Lights
-    scene.add(new THREE.AmbientLight(0xffffff, 0.3))
-    const dl = new THREE.DirectionalLight(0xffffff, 1.5)
+    const dl = new THREE.DirectionalLight(0xffffff, 0.1) // Minimum intensity just to cast a delicate ground shadow
     dl.position.set(5, 10, 5)
     dl.castShadow = true
     dl.shadow.mapSize.set(2048, 2048)
     dl.shadow.bias = -0.0001
     dl.shadow.radius = 4
     scene.add(dl)
-
-    const dlFill = new THREE.DirectionalLight(0xffffff, 0.6)
-    dlFill.position.set(-5, 4, -5)
-    scene.add(dlFill)
+    // Removed ambient/fill lights to let Image Based Lighting (HDR) do the photorealistic work
 
     // Draco
     const dracoLoader = new DRACOLoader()
@@ -231,6 +227,7 @@ export default function useThreeScene(containerRef, vjson) {
 
       // Apply separate diamond env map to diamond/gem meshes and fallback metals
       const diamondEnv = internals.current.diamondEnvMap
+      const ringEnv = internals.current.ringEnvMap
       object.traverse((child) => {
         if (!child.isMesh || !child.material) return
         const mats = Array.isArray(child.material) ? child.material : [child.material]
@@ -243,28 +240,25 @@ export default function useThreeScene(containerRef, vjson) {
 
           const isMetal = meshName.startsWith('metal') || matName.includes('metal') || mat.metalness > 0.3;
 
-          // Force intense polish on metals to match Target Output
-          if (isMetal && !mat._isPolished) {
-            mat.roughness = 0.05
-            mat.metalness = 1.0
-            mat.envMapIntensity = 2.0
-            mat._isPolished = true
+          // Apply isolated environment map to metal
+          if (isMetal) {
+            if (ringEnv) mat.envMap = ringEnv;
             mat.needsUpdate = true
           }
 
           if (isGem && diamondEnv) {
-            const diamondMat = new THREE.MeshPhysicalMaterial({
-              color: 0xffffff,
-              transmission: 1.0,  // Enables native screen-space scene refraction
-              ior: 2.60,          // True Diamond Index of Refraction
-              dispersion: 1.0,    // Chromatic dispersion for RGB rainbows
+            const diamondMat = createDiamondMaterial(diamondEnv, {
+              color: new THREE.Color(0xdadada),
+              ior: 2.60,
+              dispersion: 0.0080,
               thickness: mat.thickness || 5.0,
-              roughness: 0.0,
-              metalness: 0.0,
-              envMap: diamondEnv,
-              envMapIntensity: 1.5,
-              transparent: true,
-              side: THREE.DoubleSide
+              absorption: 0.25,
+              envMapIntensity: 0.6,
+              boostFactor: 2.0,
+              opacity: 1.0,
+              squashFactor: 0.98,
+              geometryFactor: 0.5,
+              transmission: 1.0,
             })
             diamondMat.name = mat.name
             mat.dispose()

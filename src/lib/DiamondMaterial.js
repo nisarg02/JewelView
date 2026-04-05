@@ -49,7 +49,9 @@ const diamondFragmentShader = `
     vec3 d = normalize(dir);
     float u = atan(d.z, d.x) / (2.0 * PI) + 0.5;
     float v = asin(clamp(d.y, -1.0, 1.0)) / PI + 0.5;
-    return texture2D(envMap, vec2(u, v)).rgb;
+    vec3 col = texture2D(envMap, vec2(u, v)).rgb;
+    // High-contrast curve to generate sharp black facets
+    return pow(col, vec3(1.8));
   }
 
   // Fresnel (Schlick)
@@ -63,47 +65,37 @@ const diamondFragmentShader = `
     vec3 n = normal;
     vec3 accumulated = vec3(0.0);
     float weight = 1.0;
+    bool inside = false;
 
-    // First surface interaction: Ray enters the diamond.
-    vec3 refracted = refract(dir, n, eta);
-    if (length(refracted) < 0.001) return vec3(0.0);
-    
-    dir = refracted;
-    
-    // Begin internal bouncing
     for (int i = 0; i < MAX_BOUNCES; i++) {
-        // The .dmat explicitly supplies geometry tracking variables to mimic facets
-        vec3 squashedNormal = normalize(vec3(n.x, n.y * squashFactor, n.z));
-        vec3 facetNormal = normalize(-squashedNormal + dir * geometryFactor);
+      float currentEta = inside ? (1.0 / eta) : eta;
+      vec3 refracted = refract(dir, n, currentEta);
 
-        vec3 exitingRay = refract(dir, facetNormal, 1.0 / eta);
+      if (length(refracted) < 0.001) {
+        // Total internal reflection
+        dir = reflect(dir, n);
+      } else {
+        float cosI = abs(dot(dir, n));
+        float f0 = pow((eta - 1.0) / (eta + 1.0), 2.0);
+        float f = fresnel(cosI, f0);
 
-        if (length(exitingRay) < 0.001) {
-            // Total Internal Reflection - Ray bounces completely back inside
-            dir = reflect(dir, facetNormal);
-            n = -facetNormal; 
-        } else {
-            // Partial Transmission (Exits) + Partial Reflection (Bounces)
-            float cosI = abs(dot(dir, facetNormal));
-            float f0 = pow((1.0 / eta - 1.0) / (1.0 / eta + 1.0), 2.0);
-            float f = fresnel(cosI, f0);
+        // Refracted ray exits — sample environment, offset by thickness
+        vec3 exitDir = normalize(refracted * thickness);
+        vec3 envColor = sampleEnv(exitDir) * envMapIntensity;
+        accumulated += envColor * weight * (1.0 - f);
 
-            // Accumulate exactly what exits
-            vec3 envColor = sampleEnv(exitingRay) * envMapIntensity;
-            
-            // Apply geometric absorption per exit
-            envColor *= (1.0 - absorption);
+        // Reflected ray continues inside
+        dir = reflect(dir, n);
+        weight *= f;
+        inside = !inside;
+        n = -n;
+      }
 
-            accumulated += envColor * weight * (1.0 - f);
-
-            // Reflected ray stays inside, loses energy
-            dir = reflect(dir, facetNormal);
-            weight *= f;
-            n = -facetNormal; // Update reference for next facet
-        }
-
-        if (weight < 0.01) break;
+      if (weight < 0.005) break;
     }
+
+    // Remaining energy exits
+    accumulated += sampleEnv(dir) * envMapIntensity * weight;
 
     return accumulated;
   }
@@ -125,7 +117,7 @@ const diamondFragmentShader = `
     vec3 trG = traceRay(incident, normal, etaG);
     vec3 trB = traceRay(incident, normal, etaB);
 
-    vec3 refracted = vec3(trR.r * 2.0, trG.g * 2.0, trB.b * 2.0) * transmission;
+    vec3 refracted = vec3(trR.r, trG.g, trB.b) * transmission;
 
     // Surface reflection
     float cosTheta = max(dot(viewDir, normal), 0.0);
